@@ -200,6 +200,7 @@ class TestTypeConversion(TestCase):
         self.assertFalse(ht.can_cast(ht.uint8, ht.int8, casting="no"))
         self.assertFalse(ht.can_cast(ht.float64, ht.bool, casting="no"))
         self.assertTrue(ht.can_cast(ht.float16, ht.float16, casting="no"))
+        self.assertTrue(ht.can_cast(ht.float16, 'f2', casting="no"))
         self.assertTrue(ht.can_cast(1.0, ht.float32, casting="no"))
         self.assertFalse(ht.can_cast(zeros_array, ht.float32, casting="no"))
 

@@ -944,11 +944,12 @@ def promote_types(
     >>> ht.promote_types("i8", "f4")
     <class 'heat.core.types.float64'>
     """
-    ctype1 = canonical_heat_type(type1)
-    ctype2 = canonical_heat_type(type2)
+    heat_type1 = canonical_heat_type(type1)
+    heat_type2 = canonical_heat_type(type2)
 
-    options_1 = ctype1._can_be_cast_safely_to + ctype1._can_be_cast_intuitively_to
-    options_2 = ctype2._can_be_cast_safely_to + ctype2._can_be_cast_intuitively_to
+    # get all options the types can be cast to intuitively
+    options_1 = heat_type1._can_be_cast_safely_to + heat_type1._can_be_cast_intuitively_to
+    options_2 = heat_type2._can_be_cast_safely_to + heat_type2._can_be_cast_intuitively_to
 
     # get the types both types can be cast to intuitively
     shared = [me for me in options_1 if me in options_2]
