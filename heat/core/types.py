@@ -89,6 +89,7 @@ class datatype:
 
     _can_be_cast_safely_to = []
     _can_be_cast_intuitively_to = []  # types that cannot be cast safely, but only intuitively
+    mappings = []  # things that map to this datatype
 
     def __new__(
         cls,
@@ -257,6 +258,7 @@ class bool(datatype):
         "complex64",
         "complex128",
     ]
+    mappings = ["bool_", "?", np.bool_, torch.bool, builtins.bool]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -313,6 +315,7 @@ class int8(signedinteger):
         "complex64",
         "complex128",
     ]
+    mappings = ["b", "i1", np.int8, torch.int8]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -344,6 +347,7 @@ class int16(signedinteger):
         "complex128",
     ]
     _can_be_cast_intuitively_to = ["float16"]
+    mappings = ["h", "i2", np.int16, torch.int16]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -367,6 +371,7 @@ class int32(signedinteger):
 
     _can_be_cast_safely_to = ["int32", "int64", "float64", "complex128"]
     _can_be_cast_intuitively_to = ["float32", "complex64"]
+    mappings = ["i", "i4", np.int32, torch.int32, builtins.int]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -389,6 +394,7 @@ class int64(signedinteger):
     """
 
     _can_be_cast_safely_to = ["int64", "float64", "complex128"]
+    mappings = ["l", "i8", np.int64, torch.int64]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -429,6 +435,7 @@ class uint8(unsignedinteger):
         "complex64",
         "complex128",
     ]
+    mappings = ["B", "u", "u1", np.uint8, torch.uint8]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -465,6 +472,7 @@ class float16(floating):
         "complex64",
         "complex128",
     ]
+    mappings = ["f2", np.float16, torch.float16]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -492,6 +500,7 @@ class float32(floating):
         "complex64",
         "complex128",
     ]
+    mappings = ["f", "f4", np.float32, torch.float32, builtins.float]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -517,6 +526,7 @@ class float64(floating):
         "float64",
         "complex128",
     ]
+    mappings = ["d", "f8", np.float64, torch.float64]
 
     @classmethod
     def torch_type(cls) -> torch.dtype:
@@ -558,6 +568,7 @@ class complex64(complex):
         "complex64",
         "complex128",
     ]
+    mappings = ["F", "c8", np.complex64, torch.complex64, builtins.complex]
 
     @classmethod
     def torch_type(cls):
@@ -582,6 +593,7 @@ class complex128(complex):
     _can_be_cast_safely_to = [
         "complex128",
     ]
+    mappings = ["D", "c16", np.complex128, torch.complex128]
 
     @classmethod
     def torch_type(cls):
@@ -625,59 +637,15 @@ _inexact = (
 
 _exact = (uint8, int8, int16, int32, int64)
 
-# type mappings for type strings and builtins types
-__type_mappings = {
-    # type strings
-    "?": bool,
-    "B": uint8,
-    "b": int8,
-    "h": int16,
-    "i": int32,
-    "l": int64,
-    "f": float32,
-    "d": float64,
-    "F": complex64,
-    "D": complex128,
-    "b1": bool,
-    "u": uint8,
-    "u1": uint8,
-    "i1": int8,
-    "i2": int16,
-    "i4": int32,
-    "i8": int64,
-    "f2": float16,
-    "f4": float32,
-    "f8": float64,
-    "c8": complex64,
-    "c16": complex128,
-    # numpy types
-    np.bool_: bool,
-    np.uint8: uint8,
-    np.int8: int8,
-    np.int16: int16,
-    np.int32: int32,
-    np.int64: int64,
-    np.float32: float32,
-    np.float64: float64,
-    np.complex64: complex64,
-    np.complex128: complex128,
-    # torch types
-    torch.bool: bool,
-    torch.uint8: uint8,
-    torch.int8: int8,
-    torch.int16: int16,
-    torch.int32: int32,
-    torch.int64: int64,
-    torch.float32: float32,
-    torch.float64: float64,
-    torch.complex64: complex64,
-    torch.complex128: complex128,
-    # builtins
-    builtins.bool: bool,
-    builtins.int: int32,
-    builtins.float: float32,
-    builtins.complex: complex64,
-}
+
+def __get_all_heat_types():
+    def all_subclasses(cls):
+        return set(cls.__subclasses__()).union(
+            {g for s in cls.__subclasses__() for g in all_subclasses(s)}
+        )
+
+    type_related_classes = all_subclasses(datatype)
+    return [me for me in type_related_classes if len(me.__subclasses__()) == 0]
 
 
 def canonical_heat_type(a_type: Union[str, Type[datatype], Any]) -> Type[datatype]:
@@ -706,10 +674,14 @@ def canonical_heat_type(a_type: Union[str, Type[datatype], Any]) -> Type[datatyp
     a_type = getattr(a_type, "type", a_type)
 
     # try to look the corresponding type up
-    try:
-        return __type_mappings[a_type]
-    except KeyError:
-        raise TypeError(f"data type {a_type} is not understood")
+    all_types = __get_all_heat_types()
+    for type_ in all_types:
+        try:
+            if a_type in type_.mappings:
+                return type_
+        except ValueError:
+            raise TypeError(f"data type {a_type} is not understood")
+    raise TypeError(f"data type {a_type} is not understood")
 
 
 def heat_type_is_exact(ht_dtype: Type[datatype]) -> bool:
@@ -985,7 +957,7 @@ def promote_types(
     sizes = [np.int32(me[len(me.rstrip("0123456789")) :]) if me != "bool" else 1 for me in shared]
 
     # return shared datatype with the smallest size
-    return globals()[shared[np.argmin(sizes)]]
+    return [me for me in __get_all_heat_types() if me.__name__ == shared[np.argmin(sizes)]][0]
 
 
 def result_type(
