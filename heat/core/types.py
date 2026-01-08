@@ -1074,8 +1074,15 @@ def promote_types(
     """
     options_1 = canonical_heat_type(type1)._can_be_cast_to["intuitive"]
     options_2 = canonical_heat_type(type2)._can_be_cast_to["intuitive"]
+
+    # get the types both types can be cast to intuitively
     shared = [me for me in options_1 if me in options_2]
-    return globals()[shared[0]]  # TODO: this assumes that the entries are sorted
+
+    # get the sizes in bytes
+    sizes = [np.int32(me[len(me.rstrip("0123456789")) :]) if me != "bool" else 1 for me in shared]
+
+    # return shared datatype with the smallest size
+    return globals()[shared[np.argmin(sizes)]]
 
 
 def result_type(
