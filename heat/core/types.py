@@ -891,24 +891,6 @@ def heat_type_of(
         raise TypeError(f"data type of {obj} is not understood")
 
 
-# type code assignment
-__type_codes = collections.OrderedDict(
-    [
-        (bool, 0),
-        (uint8, 1),
-        (int8, 2),
-        (int16, 3),
-        (int32, 4),
-        (int64, 5),
-        (float32, 6),
-        (float64, 7),
-        (complex64, 8),
-        (complex128, 9),
-        # (float16, 10),
-    ]
-)
-
-
 def can_cast(
     from_: Union[str, Type[datatype], Any],
     to: Union[str, Type[datatype], Any],
@@ -1145,18 +1127,22 @@ def result_type(
                 return promote_types(type1, type2), prec1
 
             # check if parent type is identical and decide by precedence
-            for sclass in (bool, integer, floating, complex):
-                if issubdtype(type1, sclass) and issubdtype(type2, sclass):
-                    if prec1 < prec2:
-                        return type1, min(prec1, prec2)
-                    else:
-                        return type2, min(prec1, prec2)
+            if can_cast(type1, type2, casting="same_kind"):
+                if prec1 < prec2:
+                    return type1, min(prec1, prec2)
+                else:
+                    return type2, min(prec1, prec2)
 
             # different parent type: bool < int < float < complex
-            tc1 = __type_codes[type1]
-            tc2 = __type_codes[type2]
+            dtype_priority_order = [bool, integer, floating, complex]
+            dtype_priority1 = [issubdtype(type1, dtype) for dtype in dtype_priority_order].index(
+                True
+            )
+            dtype_priority2 = [issubdtype(type2, dtype) for dtype in dtype_priority_order].index(
+                True
+            )
 
-            if tc1 < tc2:
+            if dtype_priority1 < dtype_priority2:
                 return type2, min(prec1, prec2)
             else:
                 return type1, min(prec1, prec2)
