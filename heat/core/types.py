@@ -908,21 +908,6 @@ __type_codes = collections.OrderedDict(
     ]
 )
 
-# same kind table
-__same_kind = [
-    # bool  uint8  int8   int16  int32  int64  float32 float64 complex64 complex128
-    [True, False, False, False, False, False, False, False, False, False],  # bool
-    [False, True, True, True, True, True, False, False, False, False],  # uint8
-    [False, True, True, True, True, True, False, False, False, False],  # int8
-    [False, True, True, True, True, True, False, False, False, False],  # int16
-    [False, True, True, True, True, True, False, False, False, False],  # int32
-    [False, True, True, True, True, True, False, False, False, False],  # int64
-    [False, False, False, False, False, False, True, True, False, False],  # float32
-    [False, False, False, False, False, False, True, True, False, False],  # float64
-    [False, False, False, False, False, False, False, False, True, True],  # complex64
-    [False, False, False, False, False, False, False, False, True, True],  # complex128
-]
-
 
 def can_cast(
     from_: Union[str, Type[datatype], Any],
@@ -987,16 +972,6 @@ def can_cast(
         type_to = heat_type_of(to)
 
     return type_from.can_cast_to(type_to, casting=casting)
-
-
-# compute possible type promotions dynamically
-__type_promotions = [[None] * len(row) for row in __same_kind]
-for i, operand_a in enumerate(__type_codes.keys()):
-    for j, operand_b in enumerate(__type_codes.keys()):
-        for target in __type_codes.keys():
-            if can_cast(operand_a, target) and can_cast(operand_b, target):
-                __type_promotions[i][j] = target
-                break
 
 
 def iscomplex(x: dndarray.DNDarray) -> dndarray.DNDarray:
@@ -1097,10 +1072,10 @@ def promote_types(
     >>> ht.promote_types("i8", "f4")
     <class 'heat.core.types.float64'>
     """
-    typecode_type1 = __type_codes[canonical_heat_type(type1)]
-    typecode_type2 = __type_codes[canonical_heat_type(type2)]
-
-    return __type_promotions[typecode_type1][typecode_type2]
+    options_1 = canonical_heat_type(type1)._can_be_cast_to["intuitive"]
+    options_2 = canonical_heat_type(type2)._can_be_cast_to["intuitive"]
+    shared = [me for me in options_1 if me in options_2]
+    return globals()[shared[0]]  # TODO: this assumes that the entries are sorted
 
 
 def result_type(
