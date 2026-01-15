@@ -180,7 +180,7 @@ def qr(
 
             if A.comm.rank > i:
                 # subtract the contribution of the current block of columns from the remaining columns
-                R_loc = torch.transpose(Q_buf, -2, -1) @ A_columns
+                R_loc = torch.transpose(torch.conj(Q_buf), -2, -1) @ A_columns
                 A_columns -= Q_buf @ R_loc
                 r_size = R.larray[..., R_shapes[i] : R_shapes[i + 1], :].shape[-2]
                 R.larray[..., R_shapes[i] : R_shapes[i + 1], :] = R_loc[..., :r_size, :]
@@ -229,7 +229,7 @@ def qr(
                     R.larray[..., :, column_idx[k] : column_idx[k + 1]] *= 0
                 if k < len(column_idx) - 2:
                     coeffs = (
-                        torch.transpose(Qnew.larray, -2, -1)
+                        torch.transpose(torch.conj(Qnew.larray), -2, -1)
                         @ A_copy.larray[..., :, column_idx[k + 1] :]
                     )
                     R.comm.Allreduce(communication.MPI.IN_PLACE, coeffs)
