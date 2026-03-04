@@ -294,16 +294,16 @@ def array(
         torch_dtype = dtype.torch_type()
 
     # infer device
-    if device is None:
-        try:
-            device = obj.device
-        except AttributeError:
-            device = None
+    # if device is None:
+    #     try:
+    #         device = obj.device
+    #     except AttributeError:
+    #         device = None
 
-        try:
-            device = devices.sanitize_device(device)
-        except ValueError:
-            device = None
+    #     try:
+    #         device = devices.sanitize_device(device)
+    #     except ValueError:
+    #         device = None
 
     if device is not None:
         device = devices.sanitize_device(device)
