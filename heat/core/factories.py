@@ -286,6 +286,152 @@ def array(
           11
          [torch.LongStorage of size 6]
     """
+    # get local torch data
+    if isinstance(obj, DNDarray):
+        lobj = obj.larray
+        is_split = obj.split if is_split is None else is_split
+        split = obj.split if split is None else split
+        if is_split is not None and is_split != obj.split:
+            raise ValueError(f"Input is split along {obj.split}, not {is_split}!")
+
+    elif isinstance(obj, torch.Tensor):
+        lobj = obj
+    else:
+        # we need to select the datatype for converting to torch first in order to prevent loss of precision
+        if np.isscalar(obj):
+            load_dtype = type(obj)
+        else:
+            load_dtype = getattr(obj, "dtype", None)
+
+        load_dtype = types.canonical_heat_type(load_dtype) if load_dtype is not None else load_dtype
+
+        if dtype is not None:
+            if load_dtype is not None:
+                load_dtype = types.promote_types(load_dtype, dtype)
+            else:
+                load_dtype = types.canonical_heat_type(dtype)
+
+        try:
+            lobj = torch.as_tensor(
+                obj, dtype=load_dtype.torch_type() if load_dtype is not None else None
+            )
+        except RuntimeError:
+            raise TypeError(f"invalid data of type {type(obj)}")
+
+    # if input and output split are different, create array with the same split and then resplit
+    if split is not None and is_split is not None and split != is_split:
+        res = array(
+            obj,
+            dtype=dtype,
+            copy=copy,
+            ndmin=ndmin,
+            order=order,
+            split=is_split,
+            is_split=is_split,
+            device=device,
+            comm=comm,
+        )
+        res.resplit_(split)
+        return res
+
+    # infer defaults from local data
+    dtype = types.canonical_heat_type(lobj.dtype if dtype is None else dtype)
+    device = devices.sanitize_device(lobj.device if device is None else device)
+
+    # early out for copying DNDarray objects
+    if isinstance(obj, DNDarray):
+        if copy:
+            if dtype == obj.dtype and device == obj.device:
+                return memory_copy(obj)
+        elif (device == devices.sanitize_device(lobj.device) or device is None) and (
+            dtype == types.canonical_heat_type(lobj.dtype) or dtype is None
+        ):
+            return obj
+
+    # create copy of local data if needed
+    ldtype = types.canonical_heat_type(lobj.dtype)
+    ldevice = devices.sanitize_device(lobj.device)
+    if copy:
+        lobj = lobj.clone().detach()
+    elif copy is False:
+        if device != ldevice:
+            raise ValueError(
+                "argument `copy` is set to False, but copy of input object is necessary as the array is being copied across devices.\nUse the method `DNDarray.cpu()` or  `DNDarray.gpu()` to move the array to the desired device."
+            )
+        if dtype != ldtype:
+            raise ValueError(
+                f"argument `copy` is set to False, but copy of input object is necessary as the dtype of the array is being changed from {ldtype} to {dtype}."
+            )
+
+    # convert dtype of local data if needed
+    if ldtype != dtype and dtype is not None:
+        lobj = torch.as_tensor(lobj, dtype=dtype.torch_type())
+
+    # move local data to device if needed
+    if ldevice != device and device is not None:
+        lobj = torch.as_tensor(lobj, device=device.torch_device)
+
+    # TODO: convert to contiguous ordering
+
+    # TODO: merge above `as_tensor` calls
+
+    # sanitize minimum number of dimensions
+    if not isinstance(ndmin, int):
+        raise TypeError(f"expected ndmin to be int, but was {type(ndmin)}")
+
+    # reshape the object to encompass additional dimensions
+    ndmin_abs = abs(ndmin) - len(lobj.shape)
+    if ndmin_abs > 0 and ndmin > 0:
+        lobj = lobj.reshape(lobj.shape + ndmin_abs * (1,))
+    if ndmin_abs > 0 > ndmin:
+        lobj = lobj.reshape(ndmin_abs * (1,) + lobj.shape)
+
+    # sanitize the split axes, ensure mutual exclusiveness
+    split = sanitize_axis(lobj.shape, split)
+    is_split = sanitize_axis(lobj.shape, is_split)
+
+    # infer global shape
+    if isinstance(obj, DNDarray):
+        comm = obj.comm if comm is None else comm
+        gshape = obj.gshape
+    elif is_split is None:
+        gshape = lobj.shape
+    else:
+        comm = sanitize_comm(comm)
+        lshapes = comm.allgather(list(lobj.shape))
+        gshape = lshapes[0]
+        gshape[is_split] = sum(lshape[is_split] for lshape in lshapes)
+        if not all(len(lshapes[i]) == lobj.ndim for i in range(len(lshapes))):
+            raise ValueError("Incompatible local shapes")
+        for i in range(len(gshape)):
+            if i == is_split:
+                continue
+            else:
+                if not all(lshapes[j][i] == gshape[i] for j in range(len(lshapes))):
+                    raise ValueError(f"Incompatible local shapes in dimension {i}")
+
+    comm = sanitize_comm(comm)
+
+    # split data
+    if split is not None and comm.size > 1:
+        if is_split is None:
+            _, _, slices = comm.chunk(gshape, split)
+            lobj = lobj[slices].contiguous()
+
+            lobj = sanitize_memory_layout(lobj, order=order)
+        elif is_split != split:
+            raise Exception(
+                f"This function cannot simultaneously convert to DNDarray and resplit from {is_split} to {split}"
+            )
+
+    if split is None and is_split is not None:
+        split = is_split
+
+    # assemble global DND array from local data
+    # TODO: determine if the array is balanced
+    return DNDarray(lobj, tuple(gshape), dtype, split, device, comm, balanced=True)
+
+    # =============================
     # sanitize the data type
     if dtype is None:
         torch_dtype = None

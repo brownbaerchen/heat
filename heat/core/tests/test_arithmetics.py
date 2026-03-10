@@ -56,6 +56,8 @@ class TestArithmetics(TestCase):
         a = ht.array([1], split=0)
         b = ht.array([1, 2], split=0)
         c = ht.add(a, b)
+        if a.comm.rank == 0:
+            breakpoint()
         self.assertTrue(ht.equal(c, ht.array([2, 3])))
         if c.comm.size > 1:
             if c.comm.rank < 2:

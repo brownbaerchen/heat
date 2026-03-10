@@ -186,8 +186,12 @@ def sanitize_device(device: Optional[Union[str, Device]] = None) -> Device:
     if isinstance(device, Device):
         return device
 
+    device = str(device)
+    if ":" in device:
+        device = device[: device.index(":")]
+
     try:
-        return __device_mapping[device.strip().lower()]
+        return __device_mapping[str(device).strip().lower()]
     except (AttributeError, KeyError, TypeError):
         raise ValueError(
             f'Unknown device "{device}", must be one of {", ".join(__device_mapping.keys())}'

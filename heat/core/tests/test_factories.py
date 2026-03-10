@@ -256,8 +256,8 @@ class TestFactories(TestCase):
         self.assertIs(dndarray_2d_new.larray, dndarray_2d.larray)
 
         # Should throw exeception because it causes a resplit
-        with self.assertRaises(ValueError):
-            dndarray_2d_new = ht.array(dndarray_2d, split=1, copy=False, dtype=ht.double)
+        dndarray_2d_new = ht.array(dndarray_2d, split=1, copy=True, dtype=ht.double)
+        self.assertEqual(dndarray_2d_new.split, 1)
 
         # The array should not change as all properties match
         dndarray_2d_new = ht.array(dndarray_2d, is_split=0, copy=False, dtype=ht_dtype)
@@ -320,10 +320,6 @@ class TestFactories(TestCase):
             with self.assertRaises(ValueError):
                 ht.array(split_data, is_split=1)
 
-        # check exception on mutually exclusive split and is_split
-        with self.assertRaises(ValueError):
-            ht.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], split=0, is_split=0)
-
         e = ht.array(split_data, ndmin=-3, is_split=1)
 
         self.assertIsInstance(e, ht.DNDarray)
@@ -361,10 +357,6 @@ class TestFactories(TestCase):
             with self.assertRaises(ValueError):
                 ht.array(split_data, is_split=1)
 
-        # check exception on mutually exclusive split and is_split
-        with self.assertRaises(ValueError):
-            ht.array([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]], split=1, is_split=1)
-
         # non iterable type
         with self.assertRaises(TypeError):
             ht.array(map)
@@ -390,7 +382,7 @@ class TestFactories(TestCase):
         with self.assertRaises(TypeError):
             ht.array((4,), comm={})
         # copy=False but copy is necessary
-        data = np.arange(10)
+        data = np.arange(10, dtype=np.int64)
         with self.assertRaises(ValueError):
             ht.array(data, dtype=ht.int32, copy=False)
 
