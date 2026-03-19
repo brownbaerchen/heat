@@ -14,5 +14,5 @@ jobs:
         with:
           repo: ${{ github.repository }}
           ref: ${{ github.ref_name }}
-          # notebook_dirs: '["notebooks", "examples"]' # Only check specific folders in your repo
+          notebook_dirs: '["tutorials"]' # Only check specific folders in your repo
           token: ${{ secrets.JUPYTERHUB_API_TOKEN }}
