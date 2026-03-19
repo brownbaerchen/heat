@@ -12,6 +12,7 @@ jobs:
       - name: Run notebooks via papermill on Jupyter4NFDI
         uses: NFDI-Jupyter/ghactions/.github/actions/notebooks@main
         with:
-          repo: {{ github.repository }}
-          ref: {{ github.ref_name }}
-          token: {{ secrets.JUPYTERHUB_API_TOKEN }}
+          repo: ${{ github.repository }}
+          ref: ${{ github.ref_name }}
+          # notebook_dirs: '["notebooks", "examples"]' # Only check specific folders in your repo
+          token: ${{ secrets.JUPYTERHUB_API_TOKEN }}
