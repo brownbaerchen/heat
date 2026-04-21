@@ -1412,6 +1412,77 @@ class TestDNDarray(TestCase):
         self.assertTrue(ht.all(heat_array == ht.array(res)))
         self.assertEqual(heat_array.split, 1)
 
+    def test_setitem(self):
+        # following https://numpy.org/doc/stable/user/basics.indexing.html
+
+        # Single element indexing
+        # 1D, local
+        x = ht.zeros(10)
+        x[2] = 2
+        x[-2] = 8
+        self.assertTrue(x[2].item() == 2)
+        self.assertTrue(x[-2].item() == 8)
+        self.assertTrue(x[2].dtype == ht.float32)
+        # 1D, distributed
+        x = ht.zeros(10, split=0, dtype=ht.float64)
+        x[2] = 2
+        x[-2] = 8
+        self.assertTrue(x[2].item() == 2.0)
+        self.assertTrue(x[-2].item() == 8.0)
+        self.assertTrue(x[2].dtype == ht.float64)
+        self.assertTrue(x.split == 0)
+        # 2D, local
+        x = ht.zeros(10).reshape(2, 5)
+        x[0] = ht.arange(5)
+        self.assertTrue((x[0] == ht.arange(5)).all().item())
+        self.assertTrue(x[0].dtype == ht.float32)
+        # 2D, distributed
+        x_split0 = ht.zeros(10, split=0).reshape(2, 5)
+        x_split0[0] = ht.arange(5)
+        self.assertTrue((x_split0[0] == ht.arange(5, split=None)).all().item())
+        x_split1 = ht.zeros(10, split=0).reshape(2, 5, new_split=1)
+        x_split1[-2] = ht.arange(5)
+        self.assertTrue((x_split1[-2] == ht.arange(5, split=0)).all().item())
+
+        # DIMENSIONAL INDEXING
+
+        # ellipsis
+        x = ht.array([[[1], [2], [3]], [[4], [5], [6]]])
+        # local
+        value = x.squeeze() + 7
+        x[..., 0] = value
+        self.assertTrue(ht.all(x[..., 0] == value).item())
+        value -= 7
+        x[:, :, 0] = value
+        self.assertTrue(ht.all(x[:, :, 0] == value).item())
+
+        # distributed
+        x.resplit_(axis=1)
+        value *= 2
+        x[..., 0] = value
+        x_ellipsis = x[..., 0]
+        self.assertTrue(ht.all(x_ellipsis == value).item())
+        value += 2
+        x[:, :, 0] = value
+        self.assertTrue(ht.all(x[:, :, 0] == value).item())
+        self.assertTrue(x_ellipsis.split == 1)
+
+        # newaxis: local, w. broadcasting and different dtype
+        x = ht.array([[[1], [2], [3]], [[4], [5], [6]]])
+        value = ht.array([10.0, 20.0]).reshape(2, 1)
+        x[:, None, :2, :] = value
+        x_newaxis = x[:, None, :2, :]
+        self.assertTrue(ht.all(x_newaxis == value).item())
+        value += 2
+        x[:, None, :2, :] = value
+        self.assertTrue(ht.all(x[:, None, :2, :] == value).item())
+        self.assertTrue(x[:, None, :2, :].dtype == x.dtype)
+
+        # ADVANCED INDEXING
+        # "x[(1, 2, 3),] is fundamentally different from x[(1, 2, 3)]"
+
+        # TODO: n-d value
+
     def test_setitem_getitem(self):
         # tests for bug #825
         a = ht.ones((102, 102), split=0)
