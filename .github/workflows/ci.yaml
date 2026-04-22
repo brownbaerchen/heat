@@ -5,6 +5,11 @@ on:
     branches-ignore:
       - main
       - dependabot/**
+  pull_request:
+
+concurrency:
+  group: lean-CI
+  cancel-in-progress: true
 
 jobs:
   tests:
