@@ -1417,6 +1417,7 @@ class TestDNDarray(TestCase):
         for c, i in enumerate(range(4)):
             self.assertEqual(a[1, c], i)
 
+        print('lulz')
         ###################################################
         a = ht.zeros((13, 5), split=1)
         # # set value on one node
