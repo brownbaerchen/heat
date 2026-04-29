@@ -850,9 +850,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         else:
             rem_b_out = b.lshape[-1] % nB
 
-        # get the flags from all processes
-        # rem_map dims guide -> {process number, a/b (0/1), dim0/dim1 (0/1), True/False (1/0)
-        #   if there is a remainder in this dimension
+        # Gather remainders on all tasks
+        # rem_map dims guide -> {rank, a=0 | b=1, dim0/dim1 (0/1)}
         rem_map = torch.zeros((comm.size, 2, 2))
         rem_map[comm.rank, 0, :] = torch.tensor((rem_a_out, rem_a), device=tdev)
         rem_map[comm.rank, 1, :] = torch.tensor((rem_b, rem_b_out), device=tdev)
@@ -886,11 +885,15 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                 dtype=torch.int,
                 device=tdev,
             )
-        elif a.split == ndim - 1:  # else should be equivalent at this point
+        elif a.split == ndim - 1:
             a_block_map = torch.zeros(
                 (comm.size, a.shape[-2] // mB, a.shape[-1] // kB // comm.size, 2),
                 dtype=torch.int,
                 device=tdev,
+            )
+        else:
+            raise Exception(
+                f"A with shape {a.gshape} is split in batch dimension {a.split}, which should have been handled elsewhere"
             )
         # units-> [process, dim0 block number, dim1 block number, start coord] **indices are local
 
