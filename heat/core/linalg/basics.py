@@ -828,8 +828,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         else:
             rem_b = b.lshape[-2] % kB
 
-        # get the lshape map to determine what needs to be sent where as well as M and N
-        # lshape map dims -> {node, a=0 | b=1, lshape}
+        # gather the lshape map on all tasks to determine what needs to be sent where as well as M and N
+        # lshape map dims -> {rank, a=0 | b=1, lshape}
         lshape_map = torch.zeros((comm.size, 2, ndim), dtype=int, device=tdev)
         lshape_map[comm.rank, 0, :] = torch.tensor(a.lshape, device=tdev)
         lshape_map[comm.rank, 1, :] = torch.tensor(b.lshape, device=tdev)
