@@ -830,12 +830,12 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         # gather the lshape map on all tasks to determine what needs to be sent where as well as M and N
         # lshape map dims -> {rank, a=0 | b=1, lshape}
-        lshape_map = torch.zeros((comm.size, 2, ndim), dtype=int, device=tdev)
-        lshape_map[comm.rank, 0, :] = torch.tensor(a.lshape, device=tdev)
-        lshape_map[comm.rank, 1, :] = torch.tensor(b.lshape, device=tdev)
+        lshape_map = torch.zeros((comm.size, 2, ndim), dtype=int)
+        lshape_map[comm.rank, 0, :] = torch.tensor(a.lshape)
+        lshape_map[comm.rank, 1, :] = torch.tensor(b.lshape)
         comm.Allreduce(MPI.IN_PLACE, lshape_map, MPI.SUM)
 
-        # find mB (first blocking dim for a) and nB (2nd blocking dim for b)
+        # find mB (first block dim for a) and nB (2nd block dim for b)
         mB = lshape_map[:, 0, -2].min().item()  # smallest number of local rows of a on a node
         nB = lshape_map[:, 1, -1].min().item()  # smallest number of local columns of b on a node
 
