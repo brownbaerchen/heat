@@ -840,11 +840,15 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         nB = lshape_map[:, 1, -1].min().item()  # smallest number of local columns of b on a node
 
         # check for remaining dims in the outside dimensions
-        rem_a_out, rem_b_out = 0, 0
-        if a.lshape[-2] % mB != 0 or (kB == 1 and a.lshape[-2] != 1):
+        if mB == 1 and a.lshape[-2] != 1:
             rem_a_out = 1
-        if b.lshape[-1] % nB != 0 or (kB == 1 and b.lshape[-1] != 1):
+        else:
+            rem_a_out = a.lshape[-2] % mB
+
+        if nB == 1 and b.lshape[-1] != 1:
             rem_b_out = 1
+        else:
+            rem_b_out = b.lshape[-1] % nB
 
         # get the flags from all processes
         # rem_map dims guide -> {process number, a/b (0/1), dim0/dim1 (0/1), True/False (1/0)
