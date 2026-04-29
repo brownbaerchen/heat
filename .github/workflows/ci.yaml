@@ -57,6 +57,22 @@ jobs:
           # use pytest -vv -x for debugging
           pytest
 
-      - name: Run parallel tests
+      - name: Run parallel tests with 2 tasks
+        run: |
+          mpirun -n 2 pytest -vv
+
+      - name: Run parallel tests with 3 tasks
+        run: |
+          mpirun -n 3 pytest -vv
+
+      - name: Run parallel tests with 4 tasks
         run: |
           mpirun -n 4 pytest -vv
+
+      - name: Run parallel tests with 5 tasks
+        run: |
+          mpirun -n 5 pytest -vv
+
+      - name: Run parallel tests with 6 tasks
+        run: |
+          mpirun -n 6 pytest -vv

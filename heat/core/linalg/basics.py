@@ -801,16 +801,11 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         return c
 
     else:
-        # block sizes dont need to be the same. they just need the same inner dimension (kB)
-        kB = 0  # redundant?
+        # Do a blocked multiplication with kB many blocks
+        kB = None  # number of blocks
         rem_a, rem_b = 0, 0
         if a.split == ndim - 1 and b.split == ndim - 2:  # split 10
-            # if the split direction is the last dim in a and the first dim in b
-            # the max inner dim (kB) is the min value from the result of the integer division
-            # of the last dim of a/world size and the first dim of b/world size
-            kB = min(
-                [a.gshape[-1] // comm.size, b.gshape[-2] // comm.size]
-            )  # a.gshape[-1] == b.gshape[-2]
+            kB = a.gshape[-1] // comm.size
         elif a.split == ndim - 2 and b.split == ndim - 1:  # split 01
             kB = a.gshape[-1]
         elif a.split == ndim - 1:  # split 11
