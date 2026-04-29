@@ -801,9 +801,10 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         return c
 
     else:
-        # Do a blocked multiplication with kB many blocks
-        kB = None  # number of blocks
-        rem_a, rem_b = 0, 0
+        # Do a blocked multiplication with blocks of inner size kB
+
+        # compute size of blocks
+        kB = None  # size of blocks
         if a.split == ndim - 1 and b.split == ndim - 2:  # split 10
             kB = a.gshape[-1] // comm.size
         elif a.split == ndim - 2 and b.split == ndim - 1:  # split 01
@@ -816,12 +817,16 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                 kB, a.gshape[-1]
             )  # shouldnt this always be kB and be the same as for split 11?
 
-        if (kB == 1 and a.lshape[-1] != 1) or a.lshape[
-            -1
-        ] % kB != 0:  # does kb == 1 imply a.lshape[-1] > 1?
+        # compute remainders after the blocking
+        if kB == 1 and a.lshape[-1] != 1:
             rem_a = 1
-        if (kB == 1 and b.lshape[-2] != 1) or b.lshape[-2] % kB != 0:
+        else:
+            rem_a = a.lshape[-1] % kB
+
+        if kB == 1 and b.lshape[-2] != 1:
             rem_b = 1
+        else:
+            rem_b = b.lshape[-2] % kB
 
         # get the lshape map to determine what needs to be sent where as well as M and N
         # lshape map dims -> {node, a=0 | b=1, lshape}
