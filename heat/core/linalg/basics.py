@@ -852,9 +852,10 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         # Gather remainders on all tasks
         # rem_map dims guide -> {rank, a=0 | b=1, dim0/dim1 (0/1)}
-        rem_map = torch.zeros((comm.size, 2, 2))
-        rem_map[comm.rank, 0, :] = torch.tensor((rem_a_out, rem_a_in), device=tdev)
-        rem_map[comm.rank, 1, :] = torch.tensor((rem_b_in, rem_b_out), device=tdev)
+        rem_map = np.zeros((comm.size, 2, 2))
+        rem_map[comm.rank, 0, :] = (rem_a_out, rem_a_in)
+        rem_map[comm.rank, 1, :] = (rem_b_in, rem_b_out)
+        rem_map = torch.from_numpy(rem_map)
         rem_map_comm = comm.Iallreduce(MPI.IN_PLACE, rem_map, MPI.SUM)
 
         # index_map dims guide -> {process number, a=0/b=1, relevant 1st index, 2nd index}
