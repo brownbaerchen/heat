@@ -817,16 +817,16 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                 kB, a.gshape[-1]
             )  # shouldnt this always be kB and be the same as for split 11?
 
-        # compute remainders after the blocking
+        # compute remainders after the blocking in the inner dimension
         if kB == 1 and a.lshape[-1] != 1:
-            rem_a = 1
+            rem_a_in = 1
         else:
-            rem_a = a.lshape[-1] % kB
+            rem_a_in = a.lshape[-1] % kB
 
         if kB == 1 and b.lshape[-2] != 1:
-            rem_b = 1
+            rem_b_in = 1
         else:
-            rem_b = b.lshape[-2] % kB
+            rem_b_in = b.lshape[-2] % kB
 
         # gather the lshape map on all tasks to determine what needs to be sent where as well as M and N
         # lshape map dims -> {rank, a=0 | b=1, lshape}
@@ -853,8 +853,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         # Gather remainders on all tasks
         # rem_map dims guide -> {rank, a=0 | b=1, dim0/dim1 (0/1)}
         rem_map = torch.zeros((comm.size, 2, 2))
-        rem_map[comm.rank, 0, :] = torch.tensor((rem_a_out, rem_a), device=tdev)
-        rem_map[comm.rank, 1, :] = torch.tensor((rem_b, rem_b_out), device=tdev)
+        rem_map[comm.rank, 0, :] = torch.tensor((rem_a_out, rem_a_in), device=tdev)
+        rem_map[comm.rank, 1, :] = torch.tensor((rem_b_in, rem_b_out), device=tdev)
         rem_map_comm = comm.Iallreduce(MPI.IN_PLACE, rem_map, MPI.SUM)
 
         # index_map dims guide -> {process number, a=0/b=1, relevant 1st index, 2nd index}
