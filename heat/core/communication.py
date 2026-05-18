@@ -161,7 +161,7 @@ class MPICommunication(Communication):
             self.size = None
 
     def __del__(self):
-        self.Free()
+        self.handle.__del__()
 
     def is_distributed(self) -> bool:
         """
