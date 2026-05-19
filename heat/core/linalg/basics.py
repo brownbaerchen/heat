@@ -830,9 +830,10 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         # gather the lshape map on all tasks to determine what needs to be sent where as well as M and N
         # lshape map dims -> {rank, a=0 | b=1, lshape}
-        lshape_map = torch.zeros((comm.size, 2, ndim), dtype=int)
-        lshape_map[comm.rank, 0, :] = torch.tensor(a.lshape)
-        lshape_map[comm.rank, 1, :] = torch.tensor(b.lshape)
+        lshape_map = np.zeros((comm.size, 2, ndim), dtype=int)
+        lshape_map[comm.rank, 0, :] = a.lshape
+        lshape_map[comm.rank, 1, :] = b.lshape
+        lshape_map = torch.from_numpy(lshape_map)
         comm.Allreduce(MPI.IN_PLACE, lshape_map, MPI.SUM)
 
         # find mB (first block dim for a) and nB (2nd block dim for b)
@@ -852,20 +853,22 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         # Gather remainders on all tasks
         # rem_map dims guide -> {rank, a=0 | b=1, dim0/dim1 (0/1)}
-        rem_map = np.zeros((comm.size, 2, 2))
+        rem_map = np.zeros((comm.size, 2, 2), dtype=int)
         rem_map[comm.rank, 0, :] = (rem_a_out, rem_a_in)
         rem_map[comm.rank, 1, :] = (rem_b_in, rem_b_out)
         rem_map = torch.from_numpy(rem_map)
         rem_map_comm = comm.Iallreduce(MPI.IN_PLACE, rem_map, MPI.SUM)
 
         # index_map dims guide -> {process number, a=0/b=1, relevant 1st index, 2nd index}
-        index_map = torch.zeros((comm.size, 2, 2, 2), dtype=int, device=tdev)
+        index_map = np.zeros((comm.size, 2, 2, 2), dtype=int)
         a_idx = comm.chunk(a.shape, a.split)[2]
-        index_map[comm.rank, 0, 0] = torch.tensor((a_idx[-2].start, a_idx[-2].stop), device=tdev)
-        index_map[comm.rank, 0, 1] = torch.tensor((a_idx[-1].start, a_idx[-1].stop), device=tdev)
+        index_map[comm.rank, 0, 0] = (a_idx[-2].start, a_idx[-2].stop)
+        index_map[comm.rank, 0, 1] = (a_idx[-1].start, a_idx[-1].stop)
         b_idx = comm.chunk(b.shape, b.split)[2]
-        index_map[comm.rank, 1, 0] = torch.tensor((b_idx[-2].start, b_idx[-2].stop), device=tdev)
-        index_map[comm.rank, 1, 1] = torch.tensor((b_idx[-1].start, b_idx[-1].stop), device=tdev)
+        index_map[comm.rank, 1, 0] = (b_idx[-2].start, b_idx[-2].stop)
+        index_map[comm.rank, 1, 1] = (b_idx[-1].start, b_idx[-1].stop)
+        index_map = torch.from_numpy(index_map)
+
         index_map_comm = comm.Iallreduce(MPI.IN_PLACE, index_map, MPI.SUM)
 
         # output: c = a @ b
@@ -884,13 +887,11 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             a_block_map = torch.zeros(
                 (comm.size, a.shape[-2] // mB // comm.size, a.shape[-1] // kB, 2),
                 dtype=torch.int,
-                device=tdev,
             )
         elif a.split == ndim - 1:
             a_block_map = torch.zeros(
                 (comm.size, a.shape[-2] // mB, a.shape[-1] // kB // comm.size, 2),
                 dtype=torch.int,
-                device=tdev,
             )
         else:
             raise Exception(
@@ -906,6 +907,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             a_d1_1s_flag = True
 
         index_map_comm.Wait()
+        a_block_map = a_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(comm.size):
             start0 = index_map[pr, 0, 0, 0].item()
             stop0 = index_map[pr, 0, 0, 1].item()
@@ -921,9 +923,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                     (stop1 - start1) // kB // comm.size if a_d1_1s_flag else (stop1 - start1) // kB
                 ):
                     # loop over the number of blocks in the 1st dimension
-                    a_block_map[pr, dim0, dim1] = torch.tensor(
-                        (dim0 * mB, dim1 * kB), dtype=torch.int, device=tdev
-                    )
+                    a_block_map[pr, dim0, dim1] = (dim0 * mB, dim1 * kB)
+        a_block_map = torch.from_numpy(a_block_map)
         rem_map_comm.Wait()
 
         if b.split == ndim - 2:
@@ -940,13 +941,11 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             b_block_map = torch.zeros(
                 (comm.size, b.shape[-2] // kB // comm.size, b.shape[-1] // nB, 2),
                 dtype=torch.int,
-                device=tdev,
             )
         else:  # b split 1
             b_block_map = torch.zeros(
                 (comm.size, b.shape[-2] // kB, b.shape[-1] // nB // comm.size, 2),
                 dtype=torch.int,
-                device=tdev,
             )
         # units-> [process, dim0 block number, dim1 block number, start coord] **indices are local
 
@@ -957,6 +956,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         if any(lshape_map[:, 1, :][:, -1] == 1):
             b_d1_1s_flag = True
 
+        b_block_map = b_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(b.comm.size):
             start0 = index_map[pr, 1, 0, 0].item()
             stop0 = index_map[pr, 1, 0, 1].item()
@@ -973,9 +973,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                     if b_d1_1s_flag
                     else (stop1 - start1) // nB
                 ):
-                    b_block_map[pr, dim0, dim1] = torch.tensor(
-                        (dim0 * kB, dim1 * nB), dtype=torch.int, device=tdev
-                    )
+                    b_block_map[pr, dim0, dim1] = (dim0 * kB, dim1 * nB)
+        b_block_map = torch.from_numpy(b_block_map)
 
         if a.split == ndim - 1:
             cnt = 0
@@ -2267,32 +2266,22 @@ def __mm_c_block_setter(
     c : torch.Tensor
         the local data for C
     """
-    # # (int, int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int, int, int, int, int, torch.Tensor) -> None
+    # (int, int, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int, int, int, int, int, torch.Tensor) -> None
     shp_b = b_block_map.shape
     offset_a = b_proc * shp_b[1] if b_proc != 0 else 0
     shp_a = a_block_map.shape
     offset_b = a_proc * shp_a[2] if a_proc != 0 else 0
     # offsets are the number of blocks in the multiplication direction on previous nodes
 
-    for bl_1_a in (
-        torch.arange(offset_a, offset_a + shp_b[1], dtype=torch.long, device=c.device)
-        if b_split == 0
-        else torch.arange(a_block_map[a_proc].shape[0], dtype=torch.long, device=c.device)
-    ):
+    a_range_start = offset_a if b_split == 0 else 0
+    a_range_end = offset_a + shp_b[1] if b_split == 0 else a_block_map[a_proc].shape[0]
+    for bl_1_a in range(a_range_start, a_range_end):
         # offset is the number of blocks on the previous node in the direction of multiplication
-        for bl_0_a in torch.arange(
-            a_block_map[a_proc].shape[0], dtype=torch.long, device=c.device
-        ):  # dim0
-            for bl_1_b in torch.arange(
-                b_block_map[b_proc].shape[1], dtype=torch.long, device=c.device
-            ):
-                for bl_0_b in (
-                    torch.arange(offset_b, offset_b + shp_a[1], dtype=torch.long, device=c.device)
-                    if a_split == 1
-                    else torch.arange(
-                        b_block_map[b_proc].shape[0], dtype=torch.long, device=c.device
-                    )
-                ):
+        for bl_0_a in range(a_block_map[a_proc].shape[0]):
+            for bl_1_b in range(b_block_map[b_proc].shape[1]):
+                b_range_start = offset_b if a_split == 1 else 0
+                b_range_end = offset_b + shp_a[1] if a_split == 1 else b_block_map[b_proc].shape[0]
+                for bl_0_b in range(b_range_start, b_range_end):
                     # this offset is the same as before but for b
                     a_start1 = int(a_block_map[a_proc, bl_0_a, bl_1_a, 1].item())
                     a_start0 = int(a_block_map[a_proc, bl_0_a, bl_1_a, 0].item())
