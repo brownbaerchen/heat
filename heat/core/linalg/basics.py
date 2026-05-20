@@ -890,27 +890,32 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         # units-> [process, dim0 block number, dim1 block number, start coord] **indices are local
 
         # below is to handle the edge case where there is only one element in one dimension of a
-        a_d0_1s_flag, a_d1_1s_flag = False, False
         if any(lshape_map[:, 0, :][:, -2] == 1):
-            a_d0_1s_flag = True
+            a_one_elem_in_second_to_last_dim = True
+        else:
+            a_one_elem_in_second_to_last_dim = False
         if any(lshape_map[:, 0, :][:, -1] == 1):
-            a_d1_1s_flag = True
+            a_one_elem_in_last_dim = True
+        else:
+            a_one_elem_in_last_dim = False
 
         index_map_comm.Wait()
         a_block_map = a_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(comm.size):
-            start0 = index_map[pr, 0, 0, 0]
-            stop0 = index_map[pr, 0, 0, 1]
-            start1 = index_map[pr, 0, 1, 0]
-            stop1 = index_map[pr, 0, 1, 1]
+            start0, stop0 = index_map[pr, 0, 0]
+            start1, stop1 = index_map[pr, 0, 1]
 
             # maybe we could use torch.arange instead of this nested loop
             for dim0 in range(
-                (stop0 - start0) // mB // comm.size if a_d0_1s_flag else (stop0 - start0) // mB
+                (stop0 - start0) // mB // comm.size
+                if a_one_elem_in_second_to_last_dim
+                else (stop0 - start0) // mB
             ):
                 # loop over the number of blocks in the 0th dimension
                 for dim1 in range(
-                    (stop1 - start1) // kB // comm.size if a_d1_1s_flag else (stop1 - start1) // kB
+                    (stop1 - start1) // kB // comm.size
+                    if a_one_elem_in_last_dim
+                    else (stop1 - start1) // kB
                 ):
                     # loop over the number of blocks in the 1st dimension
                     a_block_map[pr, dim0, dim1] = (dim0 * mB, dim1 * kB)
@@ -948,10 +953,8 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         b_block_map = b_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(b.comm.size):
-            start0 = index_map[pr, 1, 0, 0]
-            stop0 = index_map[pr, 1, 0, 1]
-            start1 = index_map[pr, 1, 1, 0]
-            stop1 = index_map[pr, 1, 1, 1]
+            start0, stop0 = index_map[pr, 1, 0]
+            start1, stop1 = index_map[pr, 1, 1]
 
             # loop over the number of blocks in the 0th dimension
             for dim0 in range(
