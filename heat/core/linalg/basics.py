@@ -833,7 +833,6 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         lshape_map = np.zeros((comm.size, 2, ndim), dtype=int)
         lshape_map[comm.rank, 0, :] = a.lshape
         lshape_map[comm.rank, 1, :] = b.lshape
-        lshape_map = torch.from_numpy(lshape_map)
         comm.Allreduce(MPI.IN_PLACE, lshape_map, MPI.SUM)
 
         # find mB (first block dim for a) and nB (2nd block dim for b)
@@ -856,7 +855,6 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         rem_map = np.zeros((comm.size, 2, 2), dtype=int)
         rem_map[comm.rank, 0, :] = (rem_a_out, rem_a_in)
         rem_map[comm.rank, 1, :] = (rem_b_in, rem_b_out)
-        rem_map = torch.from_numpy(rem_map)
         rem_map_comm = comm.Iallreduce(MPI.IN_PLACE, rem_map, MPI.SUM)
 
         # index_map dims guide -> {process number, a=0/b=1, relevant 1st index, 2nd index}
@@ -867,7 +865,6 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         b_idx = comm.chunk(b.shape, b.split)[2]
         index_map[comm.rank, 1, 0] = (b_idx[-2].start, b_idx[-2].stop)
         index_map[comm.rank, 1, 1] = (b_idx[-1].start, b_idx[-1].stop)
-        index_map = torch.from_numpy(index_map)
 
         index_map_comm = comm.Iallreduce(MPI.IN_PLACE, index_map, MPI.SUM)
 
@@ -909,10 +906,10 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         index_map_comm.Wait()
         a_block_map = a_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(comm.size):
-            start0 = index_map[pr, 0, 0, 0].item()
-            stop0 = index_map[pr, 0, 0, 1].item()
-            start1 = index_map[pr, 0, 1, 0].item()
-            stop1 = index_map[pr, 0, 1, 1].item()
+            start0 = index_map[pr, 0, 0, 0]
+            stop0 = index_map[pr, 0, 0, 1]
+            start1 = index_map[pr, 0, 1, 0]
+            stop1 = index_map[pr, 0, 1, 1]
 
             # maybe we could use torch.arange instead of this nested loop
             for dim0 in range(
@@ -932,7 +929,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             # there are between the blocks in the first dim of B
             cnt = 0
             for r in rem_map[:, 1, 0]:
-                if r.item():
+                if r > 0:
                     cnt += 1
                     # why increment by exactly 1? what can we assume about the lshapes on different nodes?
                     # can the sizes in the split dimension differ by more than 1?
@@ -958,10 +955,10 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
 
         b_block_map = b_block_map.numpy()  # temporarily cast to numpy for faster memory access
         for pr in range(b.comm.size):
-            start0 = index_map[pr, 1, 0, 0].item()
-            stop0 = index_map[pr, 1, 0, 1].item()
-            start1 = index_map[pr, 1, 1, 0].item()
-            stop1 = index_map[pr, 1, 1, 1].item()
+            start0 = index_map[pr, 1, 0, 0]
+            stop0 = index_map[pr, 1, 0, 1]
+            start1 = index_map[pr, 1, 1, 0]
+            stop1 = index_map[pr, 1, 1, 1]
 
             # loop over the number of blocks in the 0th dimension
             for dim0 in range(
@@ -980,7 +977,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             cnt = 0
             # this loop will push the blocks in B to adjust for the remainders in A
             for r in rem_map[:, 0, 1]:
-                if r.item():
+                if r > 0:
                     cnt += 1
                     b_block_map[:, cnt:, :, 0] += 1
 
@@ -992,12 +989,12 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             # need to send b here and not a
             #   the rows on 'a' are complete, and the columns of 'b' are split
             # locations of the remainders in b
-            b_rem_locs0 = torch.nonzero(rem_map[:, 1, 0] == 1, as_tuple=False)
-            a_rem_locs0 = torch.nonzero(rem_map[:, 0, 0] == 1, as_tuple=False)
+            b_rem_locs0 = np.array(np.nonzero(rem_map[:, 1, 0] == 1)).T
+            a_rem_locs0 = np.array(np.nonzero(rem_map[:, 0, 0] == 1)).T
             # remainders for a in the
-            a_node_rem_s0 = a.larray[..., :mB, kB : (kB + 1) * b_rem_locs0.numel() : kB + 1]
+            a_node_rem_s0 = a.larray[..., :mB, kB : (kB + 1) * b_rem_locs0.size : kB + 1]
             b_rem = torch.empty(
-                (*batch_shape, b_rem_locs0.numel(), b.lshape[-1]),
+                (*batch_shape, b_rem_locs0.size, b.lshape[-1]),
                 dtype=a.dtype.torch_type(),
                 device=tdev,
             )
@@ -1020,7 +1017,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                     b_lp_data[pr] = b.larray.clone()
                 else:
                     b_lp_data[pr] = torch.zeros(
-                        (*batch_shape, lshape_map[pr, 1, -2].item(), lshape_map[pr, 1, -1].item()),
+                        (*batch_shape, lshape_map[pr, 1, -2], lshape_map[pr, 1, -1]),
                         dtype=b.dtype.torch_type(),
                         device=tdev,
                     )
@@ -1054,13 +1051,11 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                         b_rem[..., pr - 1, :] = b_lp_data[pr - 1][..., -1, :]
 
                     # this loop is to take care of the remainders in dim0 of a
-                    if a_rem_locs0.nelement() != 0 and r_loc is not None:
-                        st = index_map[pr - 1, 1, 0, 0].item()
-                        sp = index_map[pr - 1, 1, 0, 1].item()
+                    if a_rem_locs0.size != 0 and r_loc is not None:
+                        st = index_map[pr - 1, 1, 0, 0]
+                        sp = index_map[pr - 1, 1, 0, 1]
 
-                        c.larray[..., r_loc.item(), :] += (
-                            r[..., st:sp] @ b_lp_data[pr - 1]
-                        ).squeeze(-2)
+                        c.larray[..., r_loc, :] += (r[..., st:sp] @ b_lp_data[pr - 1]).squeeze(-2)
                     del b_lp_data[pr - 1]
 
                 # need to wait if its the last loop, also need to collect the remainders
@@ -1086,24 +1081,22 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                         b_rem[..., pr, :] = b_lp_data[pr][..., -1, :]
 
                     # this loop is to take care of the remainders in the 0th dimension of A
-                    if a_rem_locs0.nelement() != 0 and r_loc is not None:
-                        st = index_map[pr, 1, 0, 0].item()
-                        sp = index_map[pr, 1, 0, 1].item()  # linear algebra dimension 0/1
+                    if a_rem_locs0.size != 0 and r_loc is not None:
+                        st = index_map[pr, 1, 0, 0]
+                        sp = index_map[pr, 1, 0, 1]  # linear algebra dimension 0/1
 
                         # code not reachable?
                         # if split_01_flag:
                         if False:
-                            st1 = index_map[pr, 1, 1, 0].item()
-                            sp1 = index_map[pr, 1, 1, 1].item()
-                            c.larray[..., r_loc.item(), st1:sp1] += r[..., st:sp] @ b_lp_data[pr]
+                            st1 = index_map[pr, 1, 1, 0]
+                            sp1 = index_map[pr, 1, 1, 1]
+                            c.larray[..., r_loc, st1:sp1] += r[..., st:sp] @ b_lp_data[pr]
                         else:
-                            c.larray[..., r_loc.item(), :] += (
-                                r[..., st:sp] @ b_lp_data[pr]
-                            ).squeeze(-2)
+                            c.larray[..., r_loc, :] += (r[..., st:sp] @ b_lp_data[pr]).squeeze(-2)
 
                     # set the final blocks on the last loop, then adjust for the
                     # the remainders which were collected in b_rem
-                    if b_rem_locs0.numel():
+                    if b_rem_locs0.size:
                         c.larray[..., : a_node_rem_s0.shape[-2], :] += (
                             a_node_rem_s0 @ b_rem
                         )  # shouldnt shape[0] always be mB?
@@ -1120,7 +1113,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                     b_lp_data[pr] = b.larray.clone()
                 else:
                     b_lp_data[pr] = torch.empty(
-                        (*batch_shape, lshape_map[pr, 1, -2].item(), lshape_map[pr, 1, -1].item()),
+                        (*batch_shape, lshape_map[pr, 1, -2], lshape_map[pr, 1, -1]),
                         dtype=b.dtype.torch_type(),
                         device=tdev,
                     )
@@ -1131,20 +1124,20 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                 if pr != 0:
                     req[pr - 1].Wait()
                     # after receiving the last loop's bcast
-                    st0 = index_map[pr - 1, 0, 0, 0].item()
-                    sp0 = index_map[pr - 1, 0, 0, 1].item() + 1
-                    st1 = index_map[pr - 1, 1, 1, 0].item()
-                    sp1 = index_map[pr - 1, 1, 1, 1].item()
+                    st0 = index_map[pr - 1, 0, 0, 0]
+                    sp0 = index_map[pr - 1, 0, 0, 1] + 1
+                    st1 = index_map[pr - 1, 1, 1, 0]
+                    sp1 = index_map[pr - 1, 1, 1, 1]
 
                     c.larray[..., : sp0 - st0, st1:sp1] += a.larray @ b_lp_data[pr - 1]
 
                     del b_lp_data[pr - 1]
                 if pr == comm.size - 1:
                     req[pr].Wait()
-                    st0 = index_map[pr, 0, 0, 0].item()
-                    sp0 = index_map[pr, 0, 0, 1].item() + 1
-                    st1 = index_map[pr, 1, 1, 0].item()
-                    sp1 = index_map[pr, 1, 1, 1].item()
+                    st0 = index_map[pr, 0, 0, 0]
+                    sp0 = index_map[pr, 0, 0, 1] + 1
+                    st1 = index_map[pr, 1, 1, 0]
+                    sp1 = index_map[pr, 1, 1, 1]
                     c.larray[..., : sp0 - st0, st1:sp1] += a.larray @ b_lp_data[pr]
                     del b_lp_data[pr]
 
@@ -1153,13 +1146,13 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
             # for this case, a is sent to b
             #   this is because 'b' has complete columns and the rows of 'a' are split
             # locations of the remainders in b
-            b_rem_locs1 = torch.nonzero(rem_map[:, 1, 1] == 1, as_tuple=False)
-            a_rem_locs1 = torch.nonzero(rem_map[:, 0, 1] == 1, as_tuple=False)
-            b_node_rem_s1 = b.larray[..., kB : (kB + 1) * a_rem_locs1.numel() : kB + 1, :nB]
+            b_rem_locs1 = np.array(np.nonzero(rem_map[:, 1, 1] == 1)).T
+            a_rem_locs1 = np.array(np.nonzero(rem_map[:, 0, 1] == 1)).T
+            b_node_rem_s1 = b.larray[..., kB : (kB + 1) * a_rem_locs1.size : kB + 1, :nB]
             # b_node_rem_s1 -> remainders for a in the
 
             a_rem = torch.empty(
-                (*batch_shape, a.lshape[-2], a_rem_locs1.numel()),
+                (*batch_shape, a.lshape[-2], a_rem_locs1.size),
                 dtype=b.dtype.torch_type(),
                 device=tdev,
             )
@@ -1179,7 +1172,7 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                     a_lp_data[pr] = a.larray.clone()
                 else:
                     a_lp_data[pr] = torch.zeros(
-                        (*batch_shape, lshape_map[pr, 0, -2].item(), lshape_map[pr, 0, -1].item()),
+                        (*batch_shape, lshape_map[pr, 0, -2], lshape_map[pr, 0, -1]),
                         dtype=a.dtype.torch_type(),
                         device=tdev,
                     )
@@ -1209,13 +1202,11 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                         # takes care of the remainders in b as well as dim0 of a
                         a_rem[..., pr - 1] = a_lp_data[pr - 1][..., -1]
                     # this loop is to take care of the remainders in dim1 of B
-                    if b_rem_locs1.nelement() != 0 and r_loc is not None:
-                        st = index_map[pr - 1, 0, 1, 0].item()
-                        sp = index_map[pr - 1, 0, 1, 1].item()
+                    if b_rem_locs1.size != 0 and r_loc is not None:
+                        st = index_map[pr - 1, 0, 1, 0]
+                        sp = index_map[pr - 1, 0, 1, 1]
 
-                        c.larray[..., r_loc.item()] += (
-                            a_lp_data[pr - 1] @ r[..., st:sp, :]
-                        ).squeeze(-1)
+                        c.larray[..., r_loc] += (a_lp_data[pr - 1] @ r[..., st:sp, :]).squeeze(-1)
 
                     del a_lp_data[pr - 1]
 
@@ -1241,14 +1232,12 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
                         # this is to save the data from B required by the remainders from dim1 of A
                         a_rem[..., pr] = a_lp_data[pr][..., -1]
                     # this loop is to take care of the remainders in the 0th dimension of A
-                    if b_rem_locs1.nelement() != 0 and r_loc is not None:
-                        st = index_map[pr, 0, 1, 0].item()
-                        sp = index_map[pr, 0, 1, 1].item()
-                        c.larray[..., r_loc.item()] += (a_lp_data[pr] @ r[..., st:sp, :]).squeeze(
-                            -1
-                        )
+                    if b_rem_locs1.size != 0 and r_loc is not None:
+                        st = index_map[pr, 0, 1, 0]
+                        sp = index_map[pr, 0, 1, 1]
+                        c.larray[..., r_loc] += (a_lp_data[pr] @ r[..., st:sp, :]).squeeze(-1)
                     # set the final blocks on the last loop, then adjust for the the remainders which were collected in b_rem
-                    if a_rem_locs1.numel():
+                    if a_rem_locs1.size:
                         c.larray[..., : b_node_rem_s1.shape[-1]] += a_rem @ b_node_rem_s1
                     del a_lp_data[pr]
 
@@ -1256,9 +1245,9 @@ def matmul(a: DNDarray, b: DNDarray, allow_resplit: bool = False) -> DNDarray:
         elif a.split == ndim - 1 and b.split == ndim - 2:
             # todo: this may create the full matrix on evey process, issue #360
             # for this case, only a sum is needed at the end
-            a_rem_locs1 = torch.nonzero(rem_map[:, 0, 1] == 1, as_tuple=False)
+            a_rem_locs1 = np.array(np.nonzero(rem_map[:, 0, 1] == 1)).T
             # locations of the remainders in b
-            b_rem_locs0 = torch.nonzero(rem_map[:, 1, 0] == 1, as_tuple=False)
+            b_rem_locs0 = np.array(np.nonzero(rem_map[:, 1, 0] == 1)).T
             res = torch.zeros(
                 (*batch_shape, a.gshape[-2], b.gshape[-1]), dtype=c_type.torch_type(), device=tdev
             )
