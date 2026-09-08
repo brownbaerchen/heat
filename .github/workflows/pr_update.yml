@@ -17,7 +17,7 @@ jobs:
         py-version:
           - '3.11' # Oldest supported
           - '3.14' # Latest stable
-        mpi: [ 'mpich' ]
+        mpi: [ 'openmpi' ]
         pytorch-version:
           - 'torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1'   # Oldest supported
           - 'torch==2.13.0 torchvision==0.28.0' # Latest stable
